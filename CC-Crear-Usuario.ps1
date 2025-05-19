@@ -362,6 +362,57 @@ if (-not $rdpUsers) {
 Set-Service -Name TermService -StartupType Automatic
 Start-Service -Name TermService
 
+# Función para establecer propiedades de registro
+function Set-RegistryValue {
+    param (
+        [string]$Path,
+        [string]$Name,
+        [Parameter(Mandatory = $true)]$Value,
+        [string]$Type = "DWord"
+    )
+    if (-not (Test-Path -Path $Path)) {
+        New-Item -Path $Path -Force | Out-Null
+    }
+    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
+}
+
+# Prevenir DLL Injection
+Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name "ProtectionMode" -Value 1
+
+# Bloquear ejecución de scripts de PowerShell (para no admins)
+Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell" -Name "EnableScripts" -Value 0
+Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine" -Name "EnableScripts" -Value 0
+
+# Restringe la ejecución a configuraciones controladas
+Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell" -Name "ConsoleSessionConfigurationName" -Value "RestrictedShell" -Type String
+
+# Política de ejecución: solo scripts firmados
+Set-ExecutionPolicy AllSigned -Scope LocalMachine -Force
+
+# Activar protección SmartScreen
+Set-MpPreference -EnableSmartScreenForExplorer $true
+
+# Habilitar DEP y ASLR
+Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "MoveImages" -Value 1
+
+# Habilitar UAC
+Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value 1
+
+# Habilitar Defender en su máxima protección
+Set-MpPreference -DisableRealtimeMonitoring $false
+Set-MpPreference -EnableControlledFolderAccess Enabled
+Set-MpPreference -EnableExploitProtection $true
+Set-MpPreference -EnableNetworkProtection $true
+Set-MpPreference -DisableIOAVProtection $false
+
+# Bloquear PowerShell v2
+Disable-WindowsOptionalFeature -Online -FeatureName 'MicrosoftWindowsPowerShellV2' -NoRestart
+
+# Bloquear dispositivos USB
+Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\USBSTOR" -Name "Start" -Value 4
+
+Write-Host "Configuraciones de seguridad aplicadas correctamente. Reinicia el sistema para completar los cambios." -ForegroundColor Green
+
 Write-Host "El equipo se reiniciará en 10 segundos..."
 Start-Sleep -Seconds 10
 # Reiniciar el equipo
