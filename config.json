@@ -1,0 +1,23 @@
+{
+    "usuario": {
+        "extension": "17",
+        "nombre": "Asesor17",
+        "contrasegna": "Asesor17"
+    },
+    "administrador": {
+        "contrasegna": "Admin0123.456"
+    },
+    "chrome": {
+        "urls": [
+            "https://crm.example.com/",
+            "https://tree.taiga.io/",
+            "https://www.instagram.com/",
+            "https://www.linkedin.com/",
+            "https://www.youtube.com/"
+        ],
+        "extension": "C:\\Tools\\Chrome\\SeguClick"
+    },
+    "api": {
+        "url": "https://api.example.com"
+    }
+}
