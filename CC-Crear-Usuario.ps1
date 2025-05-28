@@ -159,7 +159,7 @@ $newPassword = $config.usuario.contrasegna | ConvertTo-SecureString -AsPlainText
 # Detectar el nombre real del usuario administrador local (puede variar según idioma)
 $adminUserObj = Get-LocalUser | Where-Object { $_.SID -like '*-500' }
 if ($adminUserObj) {
-    $adminUsername = $adminUserObj.Name
+    $adminUsername = $adminUserObj
 } else {
     Write-Error "No se pudo detectar el usuario administrador local."
     exit 1
@@ -478,34 +478,34 @@ $allowedVIDs = @(
 Write-Host "`nDispositivos HID / Entrada conectados:`n" -ForegroundColor Cyan
 
 # Enumerar y analizar dispositivos de entrada conectados
-Get-PnpDevice | Where-Object {
-    $_.Class -match 'Keyboard|Mouse|HID|Input' -or
-    $_.FriendlyName -match 'HID|Teclado|Keyboard|Mouse'
-} | ForEach-Object {
-    $instanceId = $_.InstanceId
-    $vid = if ($instanceId -match 'VID_([0-9A-F]{4})') { "VID_$($matches[1])" } else { "N/A" }
-    $e = if ($instanceId -match 'PID_([0-9A-F]{4})') { "PID_$($matches[1])" } else { "N/A" }
-
-    Write-Host "Nombre  : $($_.FriendlyName)"
-    Write-Host "Clase   : $($_.Class)"
-    Write-Host "Estado  : $($_.Status)"
-    Write-Host "ID      : $instanceId"
-    Write-Host "VID/PID : $vid / $e"
-
-    if ($vid -ne "N/A" -and $allowedVIDs -notcontains $vid) {
-        Write-Host "⚠️  Dispositivo NO reconocido (posiblemente sospechoso)" -ForegroundColor Yellow
-    } else {
-        Write-Host "✔️  Dispositivo permitido" -ForegroundColor Green
-    }
-
-    Write-Host ""
-}
-
-# Protección contra dispositivos de inyección tipo Rubber Ducky
-Set-RegistryValue -Path $usbRestrictionsPath -Name "AllowDeviceIDs" -Value "" -Type "MultiString"
-
-# Habilitar política contra contraseñas en blanco (fuerza bruta)
-Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LimitBlankPasswordUse" -Value 1
+#Get-PnpDevice | Where-Object {
+#    $_.Class -match 'Keyboard|Mouse|HID|Input' -or
+#    $_.FriendlyName -match 'HID|Teclado|Keyboard|Mouse'
+#} | ForEach-Object {
+#    $instanceId = $_.InstanceId
+#    $vid = if ($instanceId -match 'VID_([0-9A-F]{4})') { "VID_$($matches[1])" } else { "N/A" }
+#    $pidValue = if ($instanceId -match 'PID_([0-9A-F]{4})') { "PID_$($matches[1])" } else { "N/A" }
+#
+#    Write-Host "Nombre  : $($_.FriendlyName)"
+#    Write-Host "Clase   : $($_.Class)"
+#    Write-Host "Estado  : $($_.Status)"
+#    Write-Host "ID      : $instanceId"
+#    Write-Host "VID/PID : $vid / $pidValue"
+#
+#    if ($vid -ne "N/A" -and $allowedVIDs -notcontains $vid) {
+#        Write-Host "⚠️  Dispositivo NO reconocido (posiblemente sospechoso)" -ForegroundColor Yellow
+#    } else {
+#        Write-Host "✔️  Dispositivo permitido" -ForegroundColor Green
+#    }
+#
+#    Write-Host ""
+#}
+#
+## Protección contra dispositivos de inyección tipo Rubber Ducky
+#Set-RegistryValue -Path $usbRestrictionsPath -Name "AllowDeviceIDs" -Value "" -Type "MultiString"
+#
+## Habilitar política contra contraseñas en blanco (fuerza bruta)
+#Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LimitBlankPasswordUse" -Value 1
 
 Write-Host "Configuraciones de seguridad aplicadas correctamente. Reinicia el sistema para completar los cambios." -ForegroundColor Green
 
