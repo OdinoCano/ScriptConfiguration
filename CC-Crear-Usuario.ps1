@@ -9,7 +9,7 @@ function Get-Config {
             $response = Get-Content -Path $jsonPath -Raw | ConvertFrom-Json
         } else {
             Write-Host "No se encontró el archivo de configuración local."
-            exit
+            exit 1
         }
     }
     return $response
@@ -97,9 +97,9 @@ function Find-StartupFolder {
 }
 
 function Remove-Bloatware {
-    $appsToRemove = @(
-        # Apps comunes de bloatware y utilidades innecesarias
-        "Microsoft.Xbox*", "Microsoft.GetHelp", "Microsoft.Getstarted", "Microsoft.ZuneMusic",
+    $appsToRemovePatterns = @(
+        # Aplicaciones comunes de bloatware
+        "Microsoft.Xbox", "Microsoft.GetHelp", "Microsoft.Getstarted", "Microsoft.ZuneMusic",
         "Microsoft.ZuneVideo", "Microsoft.WindowsMaps", "Microsoft.People", "Microsoft.Microsoft3DViewer",
         "Microsoft.MicrosoftOfficeHub", "Microsoft.MicrosoftSolitaireCollection", "Microsoft.BingNews",
         "Microsoft.BingWeather", "Microsoft.SkypeApp", "Microsoft.MicrosoftStickyNotes",
@@ -107,36 +107,44 @@ function Remove-Bloatware {
         "Microsoft.WindowsFeedbackHub", "Microsoft.Office.OneNote", "Microsoft.MicrosoftEdgeDevToolsClient",
         "Microsoft.Cortana", "Microsoft.XboxGameOverlay", "Microsoft.XboxGamingOverlay",
         "Microsoft.XboxSpeechToTextOverlay", "Microsoft.XboxIdentityProvider", "Microsoft.Xbox.TCUI",
-        # Juegos y entretenimiento
-        "Microsoft.MicrosoftSolitaireCollection", "Microsoft.MicrosoftMahjong", "Microsoft.MicrosoftJigsaw",
-        "Microsoft.MicrosoftSudoku", "Microsoft.MicrosoftMinesweeper", "Microsoft.MicrosoftTreasureHunt",
-        "Microsoft.MicrosoftUltimateWordGames", "Microsoft.MSPaint", "Microsoft.GamingApp",
-        "Microsoft.ZuneVideo", "Microsoft.ZuneMusic", "Microsoft.BingSports", "Microsoft.BingFinance",
+        "Microsoft.MicrosoftMahjong", "Microsoft.MicrosoftJigsaw", "Microsoft.MicrosoftSudoku",
+        "Microsoft.MicrosoftMinesweeper", "Microsoft.MicrosoftTreasureHunt", "Microsoft.MicrosoftUltimateWordGames",
+        "Microsoft.MSPaint", "Microsoft.GamingApp", "Microsoft.BingSports", "Microsoft.BingFinance",
         "Microsoft.BingFoodAndDrink", "Microsoft.BingTravel", "Microsoft.BingHealthAndFitness",
-        "king.com.CandyCrush*", "king.com.BubbleWitch*", "king.com.FarmHeroes*", "king.com.*",
-        "Microsoft.Xbox*", "Microsoft.XboxApp", "Microsoft.XboxGameCallableUI", "Microsoft.XboxGamingOverlay",
-        "Microsoft.XboxIdentityProvider", "Microsoft.XboxSpeechToTextOverlay", "Microsoft.Xbox.TCUI"
+        "king.com.CandyCrush", "king.com.BubbleWitch", "king.com.FarmHeroes", "king.com."
     )
 
-    foreach ($app in $appsToRemove) {
-        $foundApp = Get-AppxPackage -Name $app
-        $foundProv = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like $app }
-        if ($foundApp -or $foundProv) {
-            Write-Host "Eliminando $app..."
-            if ($foundApp) { $foundApp | Remove-AppxPackage -ErrorAction SilentlyContinue }
-            if ($foundProv) { $foundProv | Remove-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue }
-        } else {
-            Write-Host "No se encuentra la app $app"
+    foreach ($pattern in $appsToRemovePatterns) {
+        # Eliminar AppxPackage instalado por usuario
+        $appxMatches = Get-AppxPackage | Where-Object { $_.Name -like "$pattern*" }
+        foreach ($app in $appxMatches) {
+            Write-Host "Eliminando AppxPackage: $($app.Name)"
+            try {
+                $app | Remove-AppxPackage -ErrorAction Stop
+            } catch {
+                Write-Warning "No se pudo eliminar $($app.Name): $_"
+            }
+        }
+
+        # Eliminar AppxProvisionedPackage (preinstalado para nuevos usuarios)
+        $provMatches = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -like "$pattern*" }
+        foreach ($prov in $provMatches) {
+            Write-Host "Eliminando ProvisionedPackage: $($prov.DisplayName)"
+            try {
+                Remove-AppxProvisionedPackage -Online -PackageName $prov.PackageName -ErrorAction Stop
+            } catch {
+                Write-Warning "No se pudo eliminar $($prov.DisplayName): $_"
+            }
         }
     }
 
-    Write-Host "Aplicaciones innecesarias, juegos y entretenimiento eliminados para uso en call center."
+    Write-Host "Bloatware, juegos y apps innecesarias eliminadas."
 }
 
 # Verificar que se ejecute como administrador
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "Este script debe ejecutarse como administrador."
-    exit
+    Write-Error "Este script debe ejecutarse como administrador."
+    exit 1
 }
 
 # Configuración inicial
@@ -148,7 +156,14 @@ $currentUsername = $env:USERNAME
 $newUsername = $config.usuario.nombre
 $newPassword = $config.usuario.contrasegna | ConvertTo-SecureString -AsPlainText -Force
 
-$adminUsername = "Administrador"
+# Detectar el nombre real del usuario administrador local (puede variar según idioma)
+$adminUserObj = Get-LocalUser | Where-Object { $_.SID -like '*-500' }
+if ($adminUserObj) {
+    $adminUsername = $adminUserObj.Name
+} else {
+    Write-Error "No se pudo detectar el usuario administrador local."
+    exit 1
+}
 $adminPassword = $config.administrador.contrasegna | ConvertTo-SecureString -AsPlainText -Force
 
 # Crear o actualizar usuario sin privilegios de administrador
@@ -156,9 +171,10 @@ $user = Get-LocalUser -Name $newUsername -ErrorAction SilentlyContinue
 if ($user) {
     Write-Host "El usuario $newUsername ya existe."
     # Quitar privilegios de administrador si los tiene
-    if (Get-LocalGroupMember -Group "Administradores" -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $newUsername }) {
+    $adminGroup = (Get-LocalGroup | Where-Object { $_.SID -like '*-544' }).Name
+    if (Get-LocalGroupMember -Group $adminGroup -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $newUsername }) {
         Write-Host "El usuario $newUsername tiene privilegios de administrador. Se eliminarán."
-        Remove-LocalGroupMember -Group "Administradores" -Member $newUsername -ErrorAction SilentlyContinue
+        Remove-LocalGroupMember -Group $adminGroup -Member $newUsername -ErrorAction SilentlyContinue
         # Actualizar contraseña
         Set-LocalUser -Name $newUsername -Password $newPassword
         Set-Admin -adminUsername $adminUsername -adminPassword $adminPassword
@@ -173,12 +189,12 @@ if ($user) {
 $softphonePath = Find-Microsip
 if (-not $softphonePath) {
     Write-Host "No se encontró Microsip. Asegúrate de que esté instalado."
-    exit
+    exit 1
 }
 $chromePath = Find-Chrome
 if (-not $chromePath) {
     Write-Host "No se encontró Google Chrome. Asegúrate de que esté instalado."
-    exit
+    exit 1
 }
 
 # Ruta base del usuario
@@ -186,40 +202,40 @@ $localAppData = [Environment]::GetFolderPath("LocalApplicationData")
 $partes = $localAppData -split "$currentUsername"
 $localAppData = $partes[0] + $newUsername
 
-$chromeUserDataRoot = Join-Path $localAppData "AppData\Local\Google\Chrome\User Data"
-
-if (Test-Path $chromeUserDataRoot) {
-    # Buscar todos los archivos 'Preferences' dentro de cualquier subcarpeta (Default, Profile 1, etc.)
-    $preferencesFiles = Get-ChildItem -Path $chromeUserDataRoot -Recurse -Filter "Preferences" -ErrorAction SilentlyContinue
-    foreach ($file in $preferencesFiles) {
-        try {
-            # Leer y convertir JSON
-            $jsonRaw = Get-Content $file.FullName -Raw
-            $prefs = $jsonRaw | ConvertFrom-Json
-
-            # Asegurar que exista 'session'
-            if (-not $prefs.PSObject.Properties["session"]) {
-                $prefs | Add-Member -MemberType NoteProperty -Name "session" -Value @{}
-            }
-
-            if ($prefs.session -isnot [System.Collections.IDictionary]) {
-                $prefs.session = @{}
-            }
-
-            # Modificar la configuración de inicio
-            $prefs.session.restore_on_startup = 4
-            $prefs.session.startup_urls = $config.chrome.urls
-
-            # Guardar el JSON actualizado
-            $prefs | ConvertTo-Json -Depth 10 -Compress | Set-Content -Path $file.FullName -Encoding UTF8
-            Write-Host "Actualizado: $($file.FullName)"
-        } catch {
-            Write-Warning "No se pudo modificar: $($file.FullName) - $_"
-        }
-    }
-} else {
-    Write-Warning "La carpeta Chrome\User Data no existe: $chromeUserDataRoot"
-}
+#$chromeUserDataRoot = Join-Path $localAppData "AppData\Local\Google\Chrome\User Data"
+#
+#if (Test-Path $chromeUserDataRoot) {
+#    # Buscar todos los archivos 'Preferences' dentro de cualquier subcarpeta (Default, Profile 1, etc.)
+#    $preferencesFiles = Get-ChildItem -Path $chromeUserDataRoot -Recurse -Filter "Preferences" -ErrorAction SilentlyContinue
+#    foreach ($file in $preferencesFiles) {
+#        try {
+#            # Leer y convertir JSON
+#            $jsonRaw = Get-Content $file.FullName -Raw
+#            $prefs = $jsonRaw | ConvertFrom-Json
+#
+#            # Asegurar que exista 'session'
+#            if (-not $prefs.PSObject.Properties["session"]) {
+#                $prefs | Add-Member -MemberType NoteProperty -Name "session" -Value @{}
+#            }
+#
+#            if ($prefs.session -isnot [System.Collections.IDictionary]) {
+#                $prefs.session = @{}
+#            }
+#
+#            # Modificar la configuración de inicio
+#            $prefs.session.restore_on_startup = 4
+#            $prefs.session.startup_urls = $config.chrome.urls
+#
+#            # Guardar el JSON actualizado
+#            $prefs | ConvertTo-Json -Depth 10 -Compress | Set-Content -Path $file.FullName -Encoding UTF8
+#            Write-Host "Actualizado: $($file.FullName)"
+#        } catch {
+#            Write-Warning "No se pudo modificar: $($file.FullName) - $_"
+#        }
+#    }
+#} else {
+#    Write-Warning "La carpeta Chrome\User Data no existe: $chromeUserDataRoot"
+#}
 
 # Configurar Microsip
 $microsipConfigPath = Join-Path $localAppData "AppData\Roaming\MicroSIP\MicroSIP.ini"
@@ -240,7 +256,7 @@ if (Test-Path $microsipConfigPath) {
         "FWD"                ="0"
         "singleMode"         = "1"
         "volumeRing"         = "100"
-        "recordingPath"      = "C:\Users\asesor17\Desktop\Recordings"
+        "recordingPath"      = "C:\Users\$newUsername\Desktop\Recordings"
         "audioCodecs"        = "PCMA/8000/1 PCMU/8000/1"
         "enableSTUN"         = "1"
         "STUN"               = "stun.l.google.com:19302"
@@ -252,7 +268,6 @@ if (Test-Path $microsipConfigPath) {
         "proxy"              ="45.33.28.106:49999"
         "domain"             ="45.33.28.106:49999"
         "username"           =$config.usuario.extenextension
-        "password"           ="4f3450af2fe98cdc6b90c1a2cbffb478b91265c1dd0afcaae1df801e43829fc788fd0d510adb291ebc8d08944c49d2eb9c4e2b8827fa5634f05129a3f642d7c774654a3f92d9755d"
         "authID"             =$config.usuario.extenextension
         "displayName"        =$config.usuario.extenextension
         "dialingPrefix"      =""
@@ -338,29 +353,60 @@ $link2.Save()
 # Eliminar bloatware
 Remove-Bloatware
 
-# Verificar si RDP está habilitado, si no, habilitarlo
+# Habilitar RDP editando el registro directamente
 $rdpRegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
-$rdpEnabled = (Get-ItemProperty -Path $rdpRegPath -Name "fDenyTSConnections").fDenyTSConnections
-if ($rdpEnabled -ne 0) {
-    Set-ItemProperty -Path $rdpRegPath -Name "fDenyTSConnections" -Value 0
-    Write-Host "RDP habilitado."
-} else {
-    Write-Host "RDP ya estaba habilitado."
+try {
+    if (-not (Test-Path $rdpRegPath)) {
+        Write-Warning "La clave del registro para Terminal Server no existe."
+        exit 1
+    } else {
+        $rdpEnabled = Get-ItemProperty -Path $rdpRegPath -Name "fDenyTSConnections" -ErrorAction Stop
+        if ($rdpEnabled.fDenyTSConnections -ne 0) {
+            Set-ItemProperty -Path $rdpRegPath -Name "fDenyTSConnections" -Value 0
+            Set-Service -Name TermService -StartupType Automatic
+            Start-Service -Name TermService
+            Enable-NetFirewallRule -Group "@FirewallAPI.dll,-28752"
+            Write-Host "Servicio de RDP habilitado e iniciado."
+        } else {
+            Write-Host "RDP ya estaba habilitado."
+        }
+    }
+} catch {
+    Write-Warning "Error al acceder o modificar la clave de registro de RDP: $_"
+    exit 1
 }
 
-# Verificar si hay usuarios habilitados para RDP
-$rdpUsers = Get-LocalGroupMember -Group "Remote Desktop Users" -ErrorAction SilentlyContinue
-if (-not $rdpUsers) {
-    # Agregar el usuario configurado al grupo de RDP
-    Add-LocalGroupMember -Group "Remote Desktop Users" -Member $newUsername
-    Write-Host "Usuario $newUsername agregado al grupo de Remote Desktop Users."
+$rdpGroupSID = 'S-1-5-32-555'
+$rdpGroup = Get-LocalGroup | Where-Object { $_.SID -eq $rdpGroupSID }
+
+if ($null -eq $rdpGroup) {
+    Write-Warning "No se encontró el grupo de Escritorio Remoto (SID $rdpGroupSID). ¿Está habilitada la funcionalidad de RDP?"
+    exit 1
 } else {
-    Write-Host "Ya existen usuarios en el grupo de Remote Desktop Users."
+    try {
+        $rdpUsers = Get-LocalGroupMember -Group $rdpGroup.Name -ErrorAction Stop
+        if (-not ($rdpUsers | Where-Object { $_.Name -eq $newUsername })) {
+            Add-LocalGroupMember -Group $rdpGroup.Name -Member $newUsername
+            Write-Host "Usuario $newUsername agregado al grupo '$($rdpGroup.Name)'."
+        } else {
+            Write-Host "El usuario $newUsername ya está en el grupo '$($rdpGroup.Name)'."
+        }
+    } catch {
+        Write-Warning "Error al trabajar con el grupo '$($rdpGroup.Name)': $_"
+        exit 1
+    }
 }
 
-# Habilitar servicio RDP
-Set-Service -Name TermService -StartupType Automatic
-Start-Service -Name TermService
+# Habilitar Defender en su máxima protección
+if (Get-Service -Name WinDefend -ErrorAction SilentlyContinue) {
+    Set-MpPreference -DisableRealtimeMonitoring $false
+    Set-MpPreference -EnableControlledFolderAccess Enabled
+    Set-MpPreference -EnableExploitProtection $true
+    Set-MpPreference -EnableNetworkProtection $true
+    Set-MpPreference -DisableIOAVProtection $false
+} else {
+    Write-Warning "Microsoft Defender no está habilitado. Algunas protecciones no se aplicarán."
+}
 
 # Función para establecer propiedades de registro
 function Set-RegistryValue {
@@ -368,29 +414,25 @@ function Set-RegistryValue {
         [string]$Path,
         [string]$Name,
         [Parameter(Mandatory = $true)]$Value,
+        [ValidateSet("String", "DWord", "QWord", "Binary", "MultiString", "ExpandString")]
         [string]$Type = "DWord"
     )
-    if (-not (Test-Path -Path $Path)) {
+    if (-not (Test-Path $Path)) {
         New-Item -Path $Path -Force | Out-Null
     }
-    Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type -Force
+    if (-not (Get-ItemProperty -Path $Path -Name $Name -ErrorAction SilentlyContinue)) {
+        New-ItemProperty -Path $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
+    } else {
+        Set-ItemProperty -Path $Path -Name $Name -Value $Value -Force
+    }
 }
 
 # Prevenir DLL Injection
 Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -Name "ProtectionMode" -Value 1
 
 # Bloquear ejecución de scripts de PowerShell (para no admins)
-Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell" -Name "EnableScripts" -Value 0
+Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell" -Name "ConsoleSessionConfigurationName" -Value "RestrictedShell" -Type "String"
 Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine" -Name "EnableScripts" -Value 0
-
-# Restringe la ejecución a configuraciones controladas
-Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell" -Name "ConsoleSessionConfigurationName" -Value "RestrictedShell" -Type String
-
-# Política de ejecución: solo scripts firmados
-Set-ExecutionPolicy AllSigned -Scope LocalMachine -Force
-
-# Activar protección SmartScreen
-Set-MpPreference -EnableSmartScreenForExplorer $true
 
 # Habilitar DEP y ASLR
 Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" -Name "MoveImages" -Value 1
@@ -398,18 +440,72 @@ Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\
 # Habilitar UAC
 Set-RegistryValue -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableLUA" -Value 1
 
-# Habilitar Defender en su máxima protección
-Set-MpPreference -DisableRealtimeMonitoring $false
-Set-MpPreference -EnableControlledFolderAccess Enabled
-Set-MpPreference -EnableExploitProtection $true
-Set-MpPreference -EnableNetworkProtection $true
-Set-MpPreference -DisableIOAVProtection $false
+# Política de ejecución: solo scripts firmados
+Set-ExecutionPolicy AllSigned -Scope LocalMachine -Force
+
+# Activar protección SmartScreen
+Set-MpPreference -EnableSmartScreenForExplorer $true
 
 # Bloquear PowerShell v2
-Disable-WindowsOptionalFeature -Online -FeatureName 'MicrosoftWindowsPowerShellV2' -NoRestart
+if (Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2 -ErrorAction SilentlyContinue) {
+    Disable-WindowsOptionalFeature -Online -FeatureName 'MicrosoftWindowsPowerShellV2' -NoRestart
+}
 
-# Bloquear dispositivos USB
-Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Services\USBSTOR" -Name "Start" -Value 4
+# Solo el acceso de escritura
+Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies" -Name "WriteProtect" -Value 1
+
+# Bloquear solo dispositivos nuevos (ya usados, permitidos)
+Set-RegistryValue -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceInstall\Restrictions" -Name "DenyUnspecified" -Value 1
+
+# Configuración de políticas de restricción de dispositivos
+$usbRestrictionsPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceInstall\Restrictions"
+Set-RegistryValue -Path $usbRestrictionsPath -Name "DenyDeviceIDs" -Value @(
+    "USB\VID_0BDA&PID_5411",
+    "USB\VID_0BDA&PID_5412"
+) -Type "MultiString"
+
+# Lista blanca de VID conocidos
+$allowedVIDs = @(
+    "VID_046D",  # Logitech
+    "VID_045E",  # Microsoft
+    "VID_04F2",  # Chicony
+    "VID_1A2C",  # Teclado/mouse genérico
+    "VID_05AC",  # Apple
+    "VID_0BDA",  # Realtek
+    "VID_0C45"   # Cámara genérica
+)
+
+Write-Host "`nDispositivos HID / Entrada conectados:`n" -ForegroundColor Cyan
+
+# Enumerar y analizar dispositivos de entrada conectados
+Get-PnpDevice | Where-Object {
+    $_.Class -match 'Keyboard|Mouse|HID|Input' -or
+    $_.FriendlyName -match 'HID|Teclado|Keyboard|Mouse'
+} | ForEach-Object {
+    $instanceId = $_.InstanceId
+    $vid = if ($instanceId -match 'VID_([0-9A-F]{4})') { "VID_$($matches[1])" } else { "N/A" }
+    $e = if ($instanceId -match 'PID_([0-9A-F]{4})') { "PID_$($matches[1])" } else { "N/A" }
+
+    Write-Host "Nombre  : $($_.FriendlyName)"
+    Write-Host "Clase   : $($_.Class)"
+    Write-Host "Estado  : $($_.Status)"
+    Write-Host "ID      : $instanceId"
+    Write-Host "VID/PID : $vid / $e"
+
+    if ($vid -ne "N/A" -and $allowedVIDs -notcontains $vid) {
+        Write-Host "⚠️  Dispositivo NO reconocido (posiblemente sospechoso)" -ForegroundColor Yellow
+    } else {
+        Write-Host "✔️  Dispositivo permitido" -ForegroundColor Green
+    }
+
+    Write-Host ""
+}
+
+# Protección contra dispositivos de inyección tipo Rubber Ducky
+Set-RegistryValue -Path $usbRestrictionsPath -Name "AllowDeviceIDs" -Value "" -Type "MultiString"
+
+# Habilitar política contra contraseñas en blanco (fuerza bruta)
+Set-RegistryValue -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa" -Name "LimitBlankPasswordUse" -Value 1
 
 Write-Host "Configuraciones de seguridad aplicadas correctamente. Reinicia el sistema para completar los cambios." -ForegroundColor Green
 
