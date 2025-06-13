@@ -442,53 +442,6 @@ $allowedVIDs = @(
 
 Write-Host "`nDispositivos HID / Entrada conectados:`n" -ForegroundColor Cyan
 
-# Lista de dominios a bloquear
-New-NetFirewallRule `
-  -DisplayName "Bloqueo total salida (por defecto)" `
-  -Direction Outbound `
-  -Action Block `
-  -Profile Any `
-  -Enabled True `
-  -Protocol Any
-
-
-$allowDomains = @(
-  "web.whatsapp.com",
-  "whatsapp.com",
-  "microsoft.com",
-  "office.com",
-  "live.com",
-  "outlook.com",
-  "crm.contactoseguros.com.mx",
-  "contactoseguros.com.mx",
-  "unam.mx",
-  "gob.mx",
-  "google.com",
-  "google.com.mx",
-  "carfax.com"
-)
-
-foreach ($domain in $allowDomains) {
-    New-NetFirewallRule `
-        -DisplayName "Permitir salida a $domain" `
-        -Direction Outbound `
-        -Action Allow `
-        -RemoteFQDN $domain `
-        -Profile Any `
-        -Enabled True `
-        -Protocol Any
-}
-
-
-New-NetFirewallRule `
-  -DisplayName "Permitir salida a IP http://45.33.28.106/" `
-  -Direction Outbound `
-  -Action Allow `
-  -RemoteAddress "45.33.28.106" `
-  -Profile Any `
-  -Enabled True `
-  -Protocol Any
-
 # DNS
 New-NetFirewallRule -DisplayName "Permitir DNS" -Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow -Profile Any
 
@@ -497,6 +450,10 @@ New-NetFirewallRule -DisplayName "Permitir NTP" -Direction Outbound -Protocol UD
 
 # DHCP (por si usan IP dinámica)
 New-NetFirewallRule -DisplayName "Permitir DHCP" -Direction Outbound -Protocol UDP -RemotePort 67,68 -Action Allow -Profile Any
+
+# Permitir SIP en el puerto 49999 (UDP)
+New-NetFirewallRule -DisplayName "Permitir SIP UDP 49999" -Direction Outbound -Protocol UDP -RemotePort 49999 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "Permitir SIP UDP 49999 (IN)" -Direction Inbound -Protocol UDP -LocalPort 49999 -Action Allow -Profile Any
 
 # Enumerar y analizar dispositivos de entrada conectados
 #Get-PnpDevice | Where-Object {
