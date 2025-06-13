@@ -202,41 +202,6 @@ $localAppData = [Environment]::GetFolderPath("LocalApplicationData")
 $partes = $localAppData -split "$currentUsername"
 $localAppData = $partes[0] + $newUsername
 
-#$chromeUserDataRoot = Join-Path $localAppData "AppData\Local\Google\Chrome\User Data"
-#
-#if (Test-Path $chromeUserDataRoot) {
-#    # Buscar todos los archivos 'Preferences' dentro de cualquier subcarpeta (Default, Profile 1, etc.)
-#    $preferencesFiles = Get-ChildItem -Path $chromeUserDataRoot -Recurse -Filter "Preferences" -ErrorAction SilentlyContinue
-#    foreach ($file in $preferencesFiles) {
-#        try {
-#            # Leer y convertir JSON
-#            $jsonRaw = Get-Content $file.FullName -Raw
-#            $prefs = $jsonRaw | ConvertFrom-Json
-#
-#            # Asegurar que exista 'session'
-#            if (-not $prefs.PSObject.Properties["session"]) {
-#                $prefs | Add-Member -MemberType NoteProperty -Name "session" -Value @{}
-#            }
-#
-#            if ($prefs.session -isnot [System.Collections.IDictionary]) {
-#                $prefs.session = @{}
-#            }
-#
-#            # Modificar la configuración de inicio
-#            $prefs.session.restore_on_startup = 4
-#            $prefs.session.startup_urls = $config.chrome.urls
-#
-#            # Guardar el JSON actualizado
-#            $prefs | ConvertTo-Json -Depth 10 -Compress | Set-Content -Path $file.FullName -Encoding UTF8
-#            Write-Host "Actualizado: $($file.FullName)"
-#        } catch {
-#            Write-Warning "No se pudo modificar: $($file.FullName) - $_"
-#        }
-#    }
-#} else {
-#    Write-Warning "La carpeta Chrome\User Data no existe: $chromeUserDataRoot"
-#}
-
 # Configurar Microsip
 $microsipConfigPath = Join-Path $localAppData "AppData\Roaming\MicroSIP\MicroSIP.ini"
 
@@ -476,6 +441,62 @@ $allowedVIDs = @(
 )
 
 Write-Host "`nDispositivos HID / Entrada conectados:`n" -ForegroundColor Cyan
+
+# Lista de dominios a bloquear
+New-NetFirewallRule `
+  -DisplayName "Bloqueo total salida (por defecto)" `
+  -Direction Outbound `
+  -Action Block `
+  -Profile Any `
+  -Enabled True `
+  -Protocol Any
+
+
+$allowDomains = @(
+  "web.whatsapp.com",
+  "whatsapp.com",
+  "microsoft.com",
+  "office.com",
+  "live.com",
+  "outlook.com",
+  "crm.contactoseguros.com.mx",
+  "contactoseguros.com.mx",
+  "unam.mx",
+  "gob.mx",
+  "google.com",
+  "google.com.mx",
+  "carfax.com"
+)
+
+foreach ($domain in $allowDomains) {
+    New-NetFirewallRule `
+        -DisplayName "Permitir salida a $domain" `
+        -Direction Outbound `
+        -Action Allow `
+        -RemoteFQDN $domain `
+        -Profile Any `
+        -Enabled True `
+        -Protocol Any
+}
+
+
+New-NetFirewallRule `
+  -DisplayName "Permitir salida a IP http://45.33.28.106/" `
+  -Direction Outbound `
+  -Action Allow `
+  -RemoteAddress "45.33.28.106" `
+  -Profile Any `
+  -Enabled True `
+  -Protocol Any
+
+# DNS
+New-NetFirewallRule -DisplayName "Permitir DNS" -Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow -Profile Any
+
+# NTP (hora del sistema)
+New-NetFirewallRule -DisplayName "Permitir NTP" -Direction Outbound -Protocol UDP -RemotePort 123 -Action Allow -Profile Any
+
+# DHCP (por si usan IP dinámica)
+New-NetFirewallRule -DisplayName "Permitir DHCP" -Direction Outbound -Protocol UDP -RemotePort 67,68 -Action Allow -Profile Any
 
 # Enumerar y analizar dispositivos de entrada conectados
 #Get-PnpDevice | Where-Object {
