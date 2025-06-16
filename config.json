@@ -2,7 +2,8 @@
     "usuario": {
         "extension": "117",
         "nombre": "Asesor17",
-        "contrasegna": "Asesor17"
+        "contrasegna": "Asesor17",
+        "change": "Asesor18"
     },
     "administrador": {
         "contrasegna": "Admin0123.456"
