@@ -1,3 +1,20 @@
+function Get-Config {
+    param([string]$path)
+    try {
+        $response = Invoke-RestMethod -Uri "$apiURL/config/$path" -Method Get -Headers @{ "Content-Type" = "application/json" } -TimeoutSec 10
+    }
+    catch {
+        Write-Host "Fallo la API, leyendo el archivo de configuración local..."
+        if (Test-Path $jsonPath) {
+            $response = Get-Content -Path $jsonPath -Raw | ConvertFrom-Json
+        } else {
+            Write-Host "No se encontró el archivo de configuración local."
+            exit 1
+        }
+    }
+    return $response
+}
+
 function Set-Admin {
     param (
         [string]$adminUsername,
@@ -18,6 +35,10 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Write-Error "Este script debe ejecutarse como administrador."
     exit 1
 }
+
+$jsonPath = "config.json"
+
+$config = Get-Config $args[0]
 
 $adminUserObj = Get-LocalUser | Where-Object { $_.SID -like '*-500' }
 if ($adminUserObj) {
